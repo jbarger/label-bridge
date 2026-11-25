@@ -94,9 +94,11 @@ public class LabelPrintService extends PrintService {
                 PrintClient.Result r = new PrintClient(getApplicationContext()).ping();
                 main.post(() -> {
                     if (isDestroyed()) return;
-                    addPrinters(Collections.singletonList(r.ok
-                            ? build(PrinterInfo.STATUS_IDLE, "via the home PC")
-                            : build(PrinterInfo.STATUS_UNAVAILABLE, "PC not reachable: " + r.detail)));
+                    PrinterInfo info;
+                    if (!r.ok) info = build(PrinterInfo.STATUS_UNAVAILABLE, "PC not reachable: " + r.detail);
+                    else if ("not_ready".equals(r.status)) info = build(PrinterInfo.STATUS_UNAVAILABLE, r.detail);
+                    else info = build(PrinterInfo.STATUS_IDLE, "via the home PC");
+                    addPrinters(Collections.singletonList(info));
                 });
             }, "printer-check").start();
         }

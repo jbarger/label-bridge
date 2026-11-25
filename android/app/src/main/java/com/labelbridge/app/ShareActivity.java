@@ -57,7 +57,8 @@ public class ShareActivity extends Activity {
                 PrintClient.Result r = client.print(u);
                 if (r.ok) ok++;
                 String mark = "printed".equals(r.status) ? "✓ printed"
-                        : "queued".equals(r.status) ? "✓ sent (printing)" : "✗ " + r.detail;
+                        : "queued".equals(r.status) ? "✓ sent (printing)"
+                        : "stuck".equals(r.status) ? "⚠ " + r.detail : "✗ " + r.detail;
                 append("    " + mark);
             }
             final int good = ok;

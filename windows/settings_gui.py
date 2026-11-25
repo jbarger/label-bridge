@@ -71,11 +71,33 @@ class SettingsWindow:
         self.paper = ttk.Combobox(f, state="readonly", width=48)
         self.paper.grid(row=r, column=1, columnspan=2, sticky="ew", pady=2)
         r += 1
-        self.printer_note = ttk.Label(f, foreground="#555")
+        self.printer_note = ttk.Label(f, foreground="#555", wraplength=460, justify="left")
         self.printer_note.grid(row=r, column=1, columnspan=2, sticky="w")
         r += 1
-        ttk.Button(f, text="Save and print a test label", command=self.test_print).grid(
-            row=r, column=1, sticky="w", pady=(4, 0))
+
+        # Shown only while no label printer is installed.
+        self.driver_help = ttk.LabelFrame(f, text="No label printer found", padding=10)
+        self.driver_help.grid(row=r, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+        self.driver_help.columnconfigure(0, weight=1)
+        ttk.Label(self.driver_help, wraplength=470, justify="left", text=(
+            "1. Plug the label printer into this PC (or pair it over Bluetooth) and turn it on. "
+            "Windows often installs it by itself within a minute.\n"
+            "2. If it doesn't appear, install the Windows driver from the printer maker's website "
+            "(Rollo, Zebra, MUNBYN, iDPRT, Polono, Phomemo…).\n\n"
+            "This window notices the printer by itself as soon as it's installed.")).grid(
+            row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(self.driver_help, text="Printer brand / model:").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        self.brand = ttk.Entry(self.driver_help, width=24)
+        self.brand.grid(row=1, column=1, sticky="w", pady=(8, 0))
+        ttk.Button(self.driver_help, text="Find its driver…", command=self.search_driver).grid(
+            row=1, column=2, sticky="e", pady=(8, 0))
+        ttk.Button(self.driver_help, text="Open Windows printer settings",
+                   command=lambda: os.startfile("ms-settings:printers")).grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        r += 1
+
+        self.test_btn = ttk.Button(f, text="Save and print a test label", command=self.test_print)
+        self.test_btn.grid(row=r, column=1, sticky="w", pady=(4, 0))
         r += 1
 
         # --- phone
@@ -135,8 +157,11 @@ class SettingsWindow:
         ttk.Button(bar, text="Save", command=self.save_and_close).pack(side="left")
         ttk.Button(bar, text="Cancel", command=root.destroy).pack(side="left", padx=(8, 0))
 
+        self.known_printers = printers
+        self.size_text = ""
         self.refresh_papers(initial=True)
         self.refresh_status()
+        self.root.after(4000, self.poll_printers)
         threading.Thread(target=self._check_network, daemon=True).start()
 
     # ------------------------------------------------------------------ helpers
@@ -171,23 +196,74 @@ class SettingsWindow:
         v = self.printer.get()
         return "auto" if v == AUTO_PRINTER else v
 
-    def refresh_papers(self, initial: bool = False) -> None:
+    def _cfg_for_selection(self) -> dict:
         cfg = lp.load_config()
         cfg["printer"] = self.selected_printer()
+        cfg["preview_only"] = False
+        return cfg
+
+    def refresh_papers(self, initial: bool = False, keep: str | None = None) -> None:
+        cfg = self._cfg_for_selection()
+        self.size_text = ""
         try:
             name = lp.find_printer(cfg)
             papers = lp.paper_sizes(name)
             auto_id = lp.choose_paper(name, dict(cfg, paper="auto"))
             auto_name = next((n for pid, n, _ in papers if pid == auto_id), None)
-            note = f"Using: {name}" + (f" · auto size: {auto_name}" if auto_name
-                                       else " · no 4x6 size in this driver, a custom 4x6 size will be used")
-        except Exception as e:
-            papers, note = [], f"⚠ {e}"
-        self.printer_note.configure(text=note)
+            self.size_text = (f" · auto size: {auto_name}" if auto_name
+                              else " · no 4x6 size in this driver, a custom 4x6 size will be used")
+        except Exception:
+            papers = []
         names = [n for _, n, _ in papers]
         self.paper.configure(values=[AUTO_PAPER, *names])
-        cur = self.raw.get("paper", "auto") if initial else "auto"
+        cur = self.raw.get("paper", "auto") if initial else (keep or "auto")
         self.paper.set(cur if cur in names else AUTO_PAPER)
+        self.refresh_health()
+
+    def refresh_health(self) -> None:
+        """Show which printer is used and whether it can print; show driver help if none is installed."""
+        cfg = self._cfg_for_selection()
+        try:
+            name = lp.find_printer(cfg)
+        except Exception as e:
+            self.printer_note.configure(text=f"⚠ {e}", foreground="#b00020")
+            self.driver_help.grid()
+            self.test_btn.state(["disabled"])
+            return
+        self.driver_help.grid_remove()
+        self.test_btn.state(["!disabled"])
+        try:
+            problem = lp.printer_problem(name)
+        except Exception as e:
+            problem = str(e)
+        if problem:
+            self.printer_note.configure(text=f"⚠ {problem}", foreground="#b00020")
+        else:
+            self.printer_note.configure(text=f"✓ Using: {name}{self.size_text}", foreground="#1b7f3b")
+
+    def poll_printers(self) -> None:
+        """Pick up a printer the moment its driver is installed, and track offline/online."""
+        try:
+            names = lp.list_printers()
+        except Exception:
+            names = self.known_printers
+        if names != self.known_printers:
+            self.known_printers = names
+            selected = self.printer.get()
+            self.printer.configure(values=[AUTO_PRINTER, *names])
+            if selected not in (AUTO_PRINTER, *names):
+                self.printer.set(AUTO_PRINTER)
+            self.refresh_papers(keep=self.paper.get())
+        else:
+            self.refresh_health()
+        self.root.after(4000, self.poll_printers)
+
+    def search_driver(self) -> None:
+        import urllib.parse
+        import webbrowser
+        brand = self.brand.get().strip() or "4x6 thermal label printer"
+        webbrowser.open("https://www.google.com/search?q="
+                        + urllib.parse.quote_plus(f"{brand} label printer driver download Windows"))
 
     def refresh_status(self) -> None:
         running = lp.is_running()
@@ -232,11 +308,16 @@ class SettingsWindow:
         self.save()
         cfg = lp.load_config()
         cfg["preview_only"] = False
+        report: dict = {}
         try:
-            lp.print_pdf(lp.test_label_pdf(), cfg, f"{lp.APP_NAME} test label")
+            lp.print_pdf(lp.test_label_pdf(), cfg, f"{lp.APP_NAME} test label", report)
         except Exception as e:
             log.exception("test print failed")
             messagebox.showerror(lp.APP_NAME, f"Test print failed:\n\n{e}")
+            return
+        if report.get("problem"):
+            messagebox.showwarning(lp.APP_NAME, "The test label is waiting in the Windows print queue:\n\n"
+                                   f"{report['problem']}\n\nIt will print once that's fixed.")
             return
         messagebox.showinfo(lp.APP_NAME, "Test label sent. The thick border should sit just inside the "
                                          "edges of the label.")

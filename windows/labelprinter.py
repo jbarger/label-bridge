@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +40,7 @@ import pymupdf
 from PIL import Image
 
 APP_NAME = "Label Bridge"
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable).parent if FROZEN else Path(__file__).resolve().parent
@@ -149,6 +150,9 @@ def load_config() -> dict:
     cfg["extra_inboxes"] = [resolve_path(p) for p in cfg["extra_inboxes"]]
     return cfg
 
+
+# (ready, message) from the last printer check, for the tray tooltip.
+HEALTH: list = [True, ""]
 
 # Outcome of each processed file, keyed by its file name, so the phone server can
 # report "printed" / "failed" back to the app.
@@ -284,7 +288,85 @@ def find_printer(cfg: dict) -> str:
     for n in names:
         if any(h in n.lower() for h in LABEL_PRINTER_HINTS):
             return n
-    raise RuntimeError(f"no label printer found; choose your printer in {APP_NAME} settings")
+    raise RuntimeError("no label printer found. Install its driver, or pick your printer in Label Bridge settings")
+
+
+class PrinterNotReady(RuntimeError):
+    """The printer is installed but can't print right now (offline, paused, out of labels...)."""
+
+
+# Windows PRINTER_STATUS_* / JOB_STATUS_* bits worth telling the user about, most useful first.
+_PRINTER_PROBLEMS = (
+    (0x00000080, "is offline. Check that it's turned on and plugged in"),          # OFFLINE
+    (0x00001000, "is offline. Check that it's turned on and plugged in"),          # NOT_AVAILABLE
+    (0x00000001, "has its print queue paused in Windows"),                          # PAUSED
+    (0x00000010, "is out of labels"),                                               # PAPER_OUT
+    (0x00000008, "has a label jam"),                                                # PAPER_JAM
+    (0x00400000, "has its cover open"),                                             # DOOR_OPEN
+    (0x00100000, "needs attention. Check the printer"),                             # USER_INTERVENTION
+    (0x00000040, "has a paper problem"),                                            # PAPER_PROBLEM
+    (0x00000002, "reports an error. Check the printer"),                            # ERROR
+)
+_JOB_PROBLEMS = (
+    (0x0020, "is offline. Check that it's turned on and plugged in"),               # JOB_STATUS_OFFLINE
+    (0x0040, "is out of labels"),                                                   # JOB_STATUS_PAPEROUT
+    (0x0400, "needs attention. Check the printer"),                                 # JOB_STATUS_USER_INTERVENTION
+    (0x0200, "is blocked by an earlier stuck job. Clear the Windows print queue"),  # JOB_STATUS_BLOCKED_DEVQ
+    (0x0002, "reports an error. Check the printer"),                                # JOB_STATUS_ERROR
+    (0x0001, "has its print queue paused in Windows"),                              # JOB_STATUS_PAUSED
+)
+WORK_OFFLINE = 0x00000400  # PRINTER_ATTRIBUTE_WORK_OFFLINE: unplugged USB or "Use printer offline"
+
+
+def printer_problem(printer: str) -> str | None:
+    """Why `printer` can't print right now, or None if Windows thinks it's ready."""
+    import win32print
+    h = win32print.OpenPrinter(printer)
+    try:
+        info = win32print.GetPrinter(h, 2)
+    finally:
+        win32print.ClosePrinter(h)
+    if info["Attributes"] & WORK_OFFLINE:
+        return f"{printer} is offline. Check that it's turned on and plugged in (USB cable / Bluetooth)"
+    for bit, text in _PRINTER_PROBLEMS:
+        if info["Status"] & bit:
+            return f"{printer} {text}"
+    return None
+
+
+def _job_problem(printer: str, job_id: int, wait_s: float = 6.0) -> str | None:
+    """Watch a just-sent job briefly. None = it printed (or is printing normally)."""
+    import win32print
+    deadline = time.monotonic() + wait_s
+    h = win32print.OpenPrinter(printer)
+    try:
+        while time.monotonic() < deadline:
+            try:
+                job = win32print.GetJob(h, job_id, 1)
+            except Exception:
+                return None  # job left the queue: it was sent to the printer
+            for bit, text in _JOB_PROBLEMS:
+                if job["Status"] & bit:
+                    return f"{printer} {text}"
+            time.sleep(0.5)
+    finally:
+        win32print.ClosePrinter(h)
+    return printer_problem(printer)  # still queued: say why if Windows knows
+
+
+def printer_health(cfg: dict) -> tuple[bool, str]:
+    """(ready, message) for the settings window, the tray and the phone app."""
+    if cfg["preview_only"]:
+        return True, "Preview only (not printing)"
+    try:
+        name = find_printer(cfg)
+    except Exception as e:
+        return False, str(e)
+    try:
+        problem = printer_problem(name)
+    except Exception as e:
+        return False, f"{name}: {e}"
+    return (False, problem) if problem else (True, name)
 
 
 def paper_sizes(printer: str) -> list[tuple[int, str, tuple[int, int]]]:
@@ -362,20 +444,34 @@ def printer_dc(cfg: dict):
         dc.DeleteDC()
 
 
-def print_pdf(src: Path | bytes, cfg: dict, doc_name: str) -> list[Image.Image]:
-    """Render a PDF at the printer's own resolution and print one label per page."""
+def print_pdf(src: Path | bytes, cfg: dict, doc_name: str, report: dict | None = None) -> list[Image.Image]:
+    """Render a PDF at the printer's own resolution and print one label per page.
+
+    Raises PrinterNotReady (nothing is sent) if the printer is offline, paused or
+    out of labels. If the job is accepted but then sits in the Windows queue,
+    report["problem"] says why; it will print once the printer is fixed.
+    """
     if cfg["preview_only"]:
         return render_pdf(src, cfg)
     from PIL import ImageWin
+    problem = printer_problem(find_printer(cfg))
+    if problem:  # don't queue a label that would print hours later, out of the blue
+        raise PrinterNotReady(problem)
     with printer_dc(cfg) as (dc, printer, (pw, ph)):
         images = render_pdf(src, cfg, (pw, ph))
-        dc.StartDoc(doc_name)
+        job_id = dc.StartDoc(doc_name)
         for img in images:
             dc.StartPage()
             ImageWin.Dib(img).draw(dc.GetHandleOutput(), (0, 0, pw, ph))
             dc.EndPage()
         dc.EndDoc()
     log.info("sent %d label(s) from %s to %s", len(images), doc_name, printer)
+    if job_id:
+        stuck = _job_problem(printer, job_id)
+        if stuck:
+            log.warning("%s is waiting in the Windows print queue: %s", doc_name, stuck)
+            if report is not None:
+                report["problem"] = stuck
     return images
 
 
@@ -451,24 +547,34 @@ def _record(path: Path, status: str, detail: str) -> None:
 
 def process_file(path: Path, cfg: dict) -> bool:
     log.info("processing %s", path.name)
+    report: dict = {}
     try:
-        images = print_pdf(path, cfg, path.name)
+        images = print_pdf(path, cfg, path.name, report)
         save_previews(images, path, cfg)
         if cfg["preview_only"]:
             log.info("preview_only is on; previews written for %s", path.name)
     except Exception as e:
         err = traceback.format_exc()
-        log.error("failed on %s:\n%s", path.name, err)
+        if isinstance(e, RuntimeError):  # printer missing / offline: a plain message is enough
+            log.error("not printed %s: %s", path.name, e)
+        else:
+            log.error("failed on %s:\n%s", path.name, err)
         try:
             dest = _move(path, cfg["failed_dir"])
             dest.with_suffix(dest.suffix + ".error.txt").write_text(
                 f"{_dt.datetime.now():%Y-%m-%d %H:%M:%S}  {path.name}\n\n{err}", encoding="utf-8")
         except Exception:
             log.exception("could not move %s to Failed/", path.name)
-        _record(path, "failed", err.strip().splitlines()[-1])
-        on_event("error", f"Couldn't print {path.name}: {e}")
+        detail = str(e) if isinstance(e, RuntimeError) else err.strip().splitlines()[-1]
+        _record(path, "failed", detail)
+        on_event("error", f"Couldn't print {path.name}: {detail}")
         return False
-    _record(path, "printed", f"{len(images)} label(s)")
+    if report.get("problem"):
+        # Windows accepted it but it isn't coming out; it prints once the printer is fixed.
+        _record(path, "stuck", f"waiting in the PC's print queue: {report['problem']}")
+        on_event("warning", f"{path.name} is waiting: {report['problem']}")
+    else:
+        _record(path, "printed", f"{len(images)} label(s)")
     try:
         _move(path, cfg["printed_dir"])
     except Exception:
@@ -525,8 +631,23 @@ def watch(cfg: dict, stop: threading.Event | None = None) -> None:
     # (path, mtime, size) so a re-dropped file with the same name is picked up again,
     # but a stuck one is never printed twice.
     attempted: set[tuple[Path, float, int]] = set()
+    last_health: tuple[bool, str] | None = None
+    next_health_check = 0.0
     while not stop.is_set():
         try:
+            if time.monotonic() >= next_health_check:  # warn when the printer goes missing/offline
+                next_health_check = time.monotonic() + 10
+                health = printer_health(cfg)
+                HEALTH[:] = health
+                if health != last_health:
+                    if not health[0]:
+                        log.warning("printer not ready: %s", health[1])
+                        on_event("warning", health[1])
+                    elif last_health is not None:
+                        log.info("printer ready: %s", health[1])
+                        on_event("info", f"{health[1]} is ready")
+                    last_health = health
+
             mtime = CONFIG_PATH.stat().st_mtime if CONFIG_PATH.exists() else 0
             if mtime != cfg_mtime:
                 cfg_mtime = mtime

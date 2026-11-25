@@ -45,6 +45,10 @@ def run(cfg: dict) -> None:
 
     def notify(kind: str, msg: str) -> None:
         try:
+            if kind == "warning" and not lp.HEALTH[0]:
+                icon.title = f"{lp.APP_NAME}: ⚠ {msg}"[:127]
+            elif kind == "info":
+                icon.title = f"{lp.APP_NAME}: drop label PDFs in the Inbox"
             icon.notify(msg[:250], lp.APP_NAME)
         except Exception:
             log.exception("tray notification failed")

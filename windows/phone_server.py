@@ -6,7 +6,7 @@ as a dropped file. The request then waits briefly so the phone can show
 "Printed" or the error.
 
     GET  /ping                      -> {"ok": true, "printer": ..., "host": ..., "app": ..., "version": ...}
-    POST /print   body = PDF bytes  -> {"status": "printed"|"failed"|"queued", "detail": ...}
+    POST /print   body = PDF bytes  -> {"status": "printed"|"stuck"|"failed"|"queued", "detail": ...}
          headers: X-Token: <server_token>, X-Filename: <url-encoded original name>
 
 The service is also advertised over mDNS/DNS-SD as _labelprinter._tcp, so the
@@ -81,8 +81,10 @@ def _make_handler(cfg: dict, results: dict):
             if self.path != "/ping":
                 return self._send(404, {"status": "error", "detail": "not found"})
             if self._authorized():
-                from labelprinter import APP_NAME, VERSION, describe_printer
+                from labelprinter import APP_NAME, VERSION, describe_printer, printer_health
+                ready, message = printer_health(cfg)
                 self._send(200, {"ok": True, "printer": describe_printer(cfg), "host": socket.gethostname(),
+                                 "printer_ready": ready, "printer_problem": "" if ready else message,
                                  "app": APP_NAME, "version": VERSION})
 
         def do_POST(self):

@@ -135,9 +135,13 @@ final class PrintClient {
             if (path.equals("/ping")) {
                 boolean ok = j.optBoolean("ok", false);
                 if (ok) prefs.setPrinterName(j.optString("printer"));
-                return new Result(ok, ok ? "ok" : "error",
-                        ok ? "Connected to " + j.optString("host") + ", printer: " + j.optString("printer")
-                           : j.optString("detail", "HTTP " + code));
+                if (!ok) return new Result(false, "error", j.optString("detail", "HTTP " + code));
+                String host = j.optString("host");
+                if (!j.optBoolean("printer_ready", true)) {  // older PCs don't send this
+                    return new Result(true, "not_ready", "Connected to " + host
+                            + ", but the label printer isn't ready: " + j.optString("printer_problem"));
+                }
+                return new Result(true, "ok", "Connected to " + host + ", printer: " + j.optString("printer"));
             }
             String status = j.optString("status", "error");
             return new Result("printed".equals(status) || "queued".equals(status), status, j.optString("detail"));

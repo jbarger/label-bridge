@@ -49,6 +49,14 @@ The phone and PC must be on the same Wi-Fi, and Windows must treat that network 
 | Phone, Print menu | In any app, tap **⋮ → Print**, choose the printer ending in **(Label Bridge)**, and print. Leave the paper size on Letter. |
 | Anywhere | In settings, add a synced **Google Drive / OneDrive** folder under *Also watch*. Any PDF saved into it from anywhere prints. |
 
+Before each label, Label Bridge checks that the printer is ready. If it is
+unplugged, off, paused, out of labels or not installed at all, the label is **not**
+queued (it would otherwise print hours later out of the blue). The PDF goes to
+`Failed\` with the reason, and the tray icon and phone show what to fix. If the
+printer stops partway, the phone shows ⚠ and the label prints once it's fixed.
+The settings window shows a driver-install guide while no label printer is
+installed, and spots the printer the moment its driver is in place.
+
 After printing, the PDF moves to `Printed\`. If something goes wrong it moves to
 `Failed\`, with a `.error.txt` explaining why, and the tray icon pops up a
 notification. `Previews\` keeps a PNG of exactly what was sent to the printer.
