@@ -1,0 +1,6 @@
+pymupdf>=1.24
+pillow>=10
+numpy>=1.26
+pywin32>=306
+zeroconf>=0.130
+pystray>=0.19

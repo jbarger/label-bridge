@@ -1,0 +1,31 @@
+__pycache__/
+*.log
+*.log.*
+# personal settings and label folders (dev runs from a checkout)
+config.json
+windows/config.json
+Inbox/
+Printed/
+Failed/
+Previews/
+windows/Inbox/
+windows/Printed/
+windows/Failed/
+windows/Previews/
+# build output
+dist/
+windows/build/
+android/build/
+android/app/build/
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/app/src/main/res/mipmap-*/
+*.apk
+*.aab
+*.idsig
+# secrets: signing keys, passwords, real AdMob IDs
+*.keystore
+*.jks
+android/keystore.properties
+android/admob.properties

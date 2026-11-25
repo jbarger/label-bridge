@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Settings" in Android's printing screen opens the Print Label pairing screen. -->
+<print-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.labelbridge.app.MainActivity" />
