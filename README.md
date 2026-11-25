@@ -117,7 +117,8 @@ python make_icon.py
 Release signing reads `android/keystore.properties`, and real ad IDs come from
 `android/admob.properties`. Neither file is committed, and without them the build uses
 Google's test ads. See [docs/play-store.md](docs/play-store.md) for the Play
-release checklist.
+release checklist. `android/publish.py` uploads releases and the store listing
+through the Play Developer API.
 
 ## License
 

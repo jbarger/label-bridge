@@ -29,3 +29,6 @@ android/app/src/main/res/mipmap-*/
 *.jks
 android/keystore.properties
 android/admob.properties
+# Google Play API service account keys
+*service-account*.json
+label-bridge-publishing-*.json

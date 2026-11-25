@@ -1,0 +1,1 @@
+The phone now says when the PC's printer is offline, paused or out of labels, instead of queuing the label.

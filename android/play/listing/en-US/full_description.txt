@@ -1,0 +1,8 @@
+Label Bridge sends shipping-label PDFs from your phone to the 4x6 thermal label printer plugged into your Windows PC. It works with Rollo, Zebra, MUNBYN, iDPRT, Polono, D450 and other 4x6 printers. Labels print full-size and sharp.
+
+• Share any label PDF from Gmail, Drive, Files, eBay, Etsy, Pirate Ship or a carrier site, and choose Label Bridge.
+• Or use the regular ⋮ → Print menu in any app and pick your label printer.
+• Select several PDFs at once to print a whole batch.
+• Full-page carrier PDFs (USPS, UPS, FedEx and others) are cropped to just the label automatically, rotated if needed, and scaled to fill the 4x6 label.
+
+Requires the free Label Bridge program for Windows, available from github.com/jbarger/label-bridge. The phone and PC must be on the same Wi-Fi. Your labels go straight from your phone to your PC and never pass through any server.
