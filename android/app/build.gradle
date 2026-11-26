@@ -5,7 +5,9 @@ plugins {
 // Release signing and real AdMob IDs live in files that are NOT committed:
 //   keystore.properties : storeFile, storePassword, keyAlias, keyPassword
 //   admob.properties    : admobAppId, bannerId
-// Without admob.properties the app uses Google's public test ads.
+// Without admob.properties the app uses Google's public test ads. Debug builds
+// always use the test ads, so tapping ads while developing can't count as
+// invalid traffic on the real account.
 def loadProps = { String name ->
     def p = new Properties()
     def f = rootProject.file(name)
@@ -14,8 +16,10 @@ def loadProps = { String name ->
 }
 def keystoreProps = loadProps('keystore.properties')
 def admobProps = loadProps('admob.properties')
-def admobAppId = admobProps.getProperty('admobAppId', 'ca-app-pub-3940256099942544~3347511713')
-def bannerId = admobProps.getProperty('bannerId', 'ca-app-pub-3940256099942544/9214589741')
+def testAppId = 'ca-app-pub-3940256099942544~3347511713'
+def testBannerId = 'ca-app-pub-3940256099942544/9214589741'
+def admobAppId = admobProps.getProperty('admobAppId', testAppId)
+def bannerId = admobProps.getProperty('bannerId', testBannerId)
 
 android {
     namespace 'com.labelbridge.app'
@@ -25,10 +29,10 @@ android {
         applicationId 'com.labelbridge.app'
         minSdk 24
         targetSdk 36
-        versionCode 4
+        versionCode 5
         versionName '2.0.1'
-        manifestPlaceholders = [admobAppId: admobAppId]
-        buildConfigField 'String', 'BANNER_ID', "\"${bannerId}\""
+        manifestPlaceholders = [admobAppId: testAppId]
+        buildConfigField 'String', 'BANNER_ID', "\"${testBannerId}\""
     }
 
     buildFeatures {
@@ -48,6 +52,8 @@ android {
 
     buildTypes {
         release {
+            manifestPlaceholders = [admobAppId: admobAppId]
+            buildConfigField 'String', 'BANNER_ID', "\"${bannerId}\""
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')

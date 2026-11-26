@@ -52,6 +52,12 @@ The listing text lives in `android/play/listing/en-US/` (`title.txt`,
    bannerId=ca-app-pub-XXXXXXXXXXXXXXXX/ZZZZZZZZZZ
    ```
    Without this file the build uses Google's public **test** ads, which earn nothing.
+   Only release builds use the real IDs. Debug builds always show test ads, so
+   tapping ads while developing can't get the AdMob account flagged for invalid
+   clicks. Never tap the ads in a release build on your own phone.
+   (Done for this app: app ID `ca-app-pub-2998407251577742~7175076457`, banner
+   unit "Label Bridge banner". Both IDs are public once the app ships, so they
+   are fine to keep here.)
 3. In AdMob, open **Privacy & messaging** and publish a **GDPR** message (and a
    US-states message). The app already shows it through the User Messaging Platform.
 4. **app-ads.txt:** AdMob checks `https://<your website's domain>/app-ads.txt`.
